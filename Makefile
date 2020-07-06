@@ -37,7 +37,10 @@ DEPS = $(ROOT)/contrib/MurmurHash2.o \
 	   $(SRCDIR)/rm_topk.o \
 	   $(SRCDIR)/topk.o \
 	   $(SRCDIR)/rm_cms.o \
-	   $(SRCDIR)/cms.o 
+	   $(SRCDIR)/cms.o \
+	   $(SRCDIR)/rm_vbf.o \
+	   $(SRCDIR)/vbf.o 
+
 
 export 
 
