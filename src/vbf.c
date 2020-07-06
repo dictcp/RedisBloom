@@ -53,11 +53,9 @@ size_t VBF_IncrBy(VBFketch *vbf, const char *item, size_t itemlen, size_t value)
 
     for (size_t i = 0; i < vbf->depth; ++i) {
         uint32_t hash = VBF_HASH(item, itemlen, i);
-        vbf->array[(hash % vbf->width) + (i * vbf->width)] += value;
-        maxCount = max(maxCount, vbf->array[(hash % vbf->width) + (i * vbf->width)]);
+        vbf->array[(hash % vbf->width) + (i * vbf->width)] |= value;
     }
-    vbf->counter += value;
-    return maxCount;
+    return 0;
 }
 
 size_t VBF_Query(VBFketch *vbf, const char *item, size_t itemlen) {
@@ -69,9 +67,7 @@ size_t VBF_Query(VBFketch *vbf, const char *item, size_t itemlen) {
     for (size_t i = 0; i < vbf->depth; ++i) {
         uint32_t hash = VBF_HASH(item, itemlen, i);
         temp = vbf->array[(hash % vbf->width) + (i * vbf->width)];
-        if (temp < res) {
-            res = temp;
-        }
+        res &= temp;
     }
 
     return res;
