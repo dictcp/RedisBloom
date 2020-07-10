@@ -12,6 +12,13 @@
     RedisModule_ReplyWithError(ctx, x);                                                            \
     return REDISMODULE_ERR;
 
+
+#define ExtractBit(val,b) \
+    ( (val >> b) & (__typeof__(val)) 1 )
+
+#define AddBit(val,b) \
+    ( (val) | (__typeof__(val)) 1 << b )
+
 RedisModuleType *VBFketchType;
 
 typedef struct {
@@ -148,6 +155,86 @@ int VBFketch_Query(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     for (int i = 0; i < itemCount; ++i) {
         const char *str = RedisModule_StringPtrLen(argv[2 + i], &length);
         RedisModule_ReplyWithLongLong(ctx, VBF_Query(vbf, str, length));
+    }
+
+    return REDISMODULE_OK;
+}
+
+int VBFketch_Add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+
+    if (argc < 4) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    RedisModuleString *keyName = argv[1];
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    VBFketch *vbf = NULL;
+
+    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+        INNER_ERROR("VBF: key does not exist");
+    } else if (RedisModule_ModuleTypeGetType(key) != VBFketchType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    } else {
+        vbf = RedisModule_ModuleTypeGetValue(key);
+    }
+
+    int itemCount = (argc - 3);   
+    size_t value = 0;
+    for (int i = 0; i < itemCount; ++i) {
+        long long temp = 0;
+        RedisModule_StringToLongLong(argv[2 + 1 + i], &temp);
+        if (temp < 1 || temp > 31) {
+            return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+        }
+        value = AddBit(value, temp - 1);
+    }
+
+    size_t length = 0; 
+    const char *str = RedisModule_StringPtrLen(argv[2], &length);
+    VBF_IncrBy(vbf, str, length, value);
+
+    // handcoded response
+    size_t count = 1;
+    RedisModule_ReplyWithLongLong(ctx, (long long)count);
+
+    RedisModule_CloseKey(key);
+    RedisModule_ReplicateVerbatim(ctx);
+    return REDISMODULE_OK;
+}
+
+unsigned int countSetBits(unsigned int n) { 
+    unsigned int count = 0; 
+    while (n) { 
+        count += n & 1; 
+        n >>= 1; 
+    } 
+    return count; 
+} 
+
+int VBFketch_Get(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    if (argc < 3) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    VBFketch *vbf = NULL;
+    if (GetVBFKey(ctx, argv[1], &vbf, REDISMODULE_READ) != REDISMODULE_OK) {
+        return REDISMODULE_OK;
+    }
+
+    size_t length = 0; 
+    const char *str = RedisModule_StringPtrLen(argv[2], &length);
+    size_t value = VBF_Query(vbf, str, length);
+
+    // RedisModule_ReplyWithArray(ctx, 31);
+    RedisModule_ReplyWithArray(ctx, countSetBits(value));
+
+    for (int i = 0; i < 31; ++i) {
+        // RedisModule_ReplyWithLongLong(ctx, ExtractBit(value, i));
+        if (ExtractBit(value, i)) {
+            RedisModule_ReplyWithLongLong(ctx, i + 1);
+        }
     }
 
     return REDISMODULE_OK;
@@ -292,6 +379,8 @@ int VBFModule_onLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RMUtil_RegisterWriteDenyOOMCmd(ctx, "vbf.initbyprob", VBFketch_Create);
     RMUtil_RegisterWriteDenyOOMCmd(ctx, "vbf.incrby", VBFketch_IncrBy);
     RMUtil_RegisterReadCmd(ctx, "vbf.query", VBFketch_Query);
+    RMUtil_RegisterWriteDenyOOMCmd(ctx, "vbf.add", VBFketch_Add);
+    RMUtil_RegisterReadCmd(ctx, "vbf.get", VBFketch_Get);
     RMUtil_RegisterWriteDenyOOMCmd(ctx, "vbf.merge", VBFketch_Merge);
     RMUtil_RegisterReadCmd(ctx, "vbf.info", VBFKetch_Info);
 
